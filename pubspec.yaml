@@ -42,7 +42,6 @@ dependencies:
   image_picker: ^1.0.7
   geolocator: ^10.1.0
   swipable_stack: ^2.0.0
-  flutter_tindercard: ^0.1.7
 
 dev_dependencies:
   flutter_test:

@@ -1,8 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:swipable_stack/swipable_stack.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,13 +22,15 @@ class MyApp extends StatelessWidget {
       title: 'NepDate',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        fontFamily: 'Poppins',
       ),
       home: const PhoneLoginPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-// ------------------ Phone Login ------------------
+// ------------------ PHONE LOGIN ------------------
 class PhoneLoginPage extends StatefulWidget {
   const PhoneLoginPage({super.key});
 
@@ -37,17 +42,9 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController otpController = TextEditingController();
-
   String? _verificationId;
   bool _sendingOtp = false;
   bool _verifyingOtp = false;
-
-  @override
-  void dispose() {
-    phoneController.dispose();
-    otpController.dispose();
-    super.dispose();
-  }
 
   void _show(String msg) {
     if (!mounted) return;
@@ -107,7 +104,6 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
         smsCode: otp,
       );
       await _auth.signInWithCredential(credential);
-
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -158,7 +154,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
   }
 }
 
-// ------------------ Profile Page ------------------
+// ------------------ PROFILE PAGE ------------------
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -172,61 +168,109 @@ class _ProfilePageState extends State<ProfilePage> {
   final TextEditingController ageController = TextEditingController();
   final TextEditingController bioController = TextEditingController();
   final TextEditingController locationController = TextEditingController();
-
+  final List<File> _photos = [];
   bool _saving = false;
 
-  @override
-  void dispose() {
-    nameController.dispose();
-    ageController.dispose();
-    bioController.dispose();
-    locationController.dispose();
-    super.dispose();
+  Future<void> pickPhoto() async {
+    if (_photos.length >= 5) return;
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) setState(() => _photos.add(File(image.path)));
+  }
+
+  Future<List<String>> uploadPhotos(List<File> files, String uid) async {
+    List<String> urls = [];
+    for (int i = 0; i < files.length; i++) {
+      final ref = FirebaseStorage.instance.ref().child(
+        'profile_photos/$uid-$i.jpg',
+      );
+      await ref.putFile(files[i]);
+      urls.add(await ref.getDownloadURL());
+    }
+    return urls;
   }
 
   Future<void> saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please login again.')));
-      return;
-    }
+    if (user == null) return;
 
     setState(() => _saving = true);
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'name': nameController.text.trim(),
-        'age': int.parse(ageController.text.trim()),
-        'bio': bioController.text.trim(),
-        'photos': [],
-        'location': locationController.text.trim(),
-        'interests': [],
-        'gender': '',
-      });
 
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MyHomePage(title: 'Discover')),
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+    List<String> photoUrls = [];
+    if (_photos.isNotEmpty) photoUrls = await uploadPhotos(_photos, user.uid);
+
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      'name': nameController.text.trim(),
+      'age': int.parse(ageController.text.trim()),
+      'bio': bioController.text.trim(),
+      'location': locationController.text.trim(),
+      'photos': photoUrls,
+      'interests': ['Music', 'Travel', 'Movies'],
+      'gender': 'Female',
+    });
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const MyHomePage(title: 'Discover')),
+    );
+    setState(() => _saving = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Complete Profile')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: Column(
             children: [
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children:
+                    _photos
+                        .map(
+                          (photo) => Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 40,
+                                backgroundImage: FileImage(photo),
+                              ),
+                              Positioned(
+                                right: -10,
+                                top: -10,
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.cancel,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _photos.remove(photo)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                        .toList()
+                      ..add(
+                        Stack(
+                          children: [
+                            GestureDetector(
+                              onTap: pickPhoto,
+                              child: CircleAvatar(
+                                radius: 40,
+                                child: const Icon(Icons.add_a_photo),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Name'),
@@ -268,7 +312,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
-// ------------------ Home Page with Swipable Cards ------------------
+// ------------------ HOME PAGE ------------------
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
   final String title;
@@ -278,65 +322,262 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final List<Map<String, dynamic>> _cards = [
-    {'name': 'Asha', 'age': 24, 'bio': 'Loves hiking and coffee.'},
-    {'name': 'Rabin', 'age': 27, 'bio': 'Music producer and foodie.'},
-    {'name': 'Nima', 'age': 22, 'bio': 'Photographer and traveler.'},
-  ];
-
+  final List<Map<String, dynamic>> _cards = [];
   late final SwipableStackController _controller;
 
   @override
   void initState() {
     super.initState();
     _controller = SwipableStackController();
+    _fetchUsers();
+  }
+
+  Future<void> _fetchUsers() async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    final currentUser = FirebaseAuth.instance.currentUser;
+    setState(() {
+      _cards.addAll(
+        snapshot.docs
+            .where((doc) => doc.id != currentUser!.uid)
+            .map(
+              (doc) => {
+                'uid': doc.id,
+                'name': doc['name'],
+                'age': doc['age'],
+                'bio': doc['bio'],
+                'photos': doc['photos'] ?? [],
+                'interests': doc['interests'] ?? [],
+                'gender': doc['gender'] ?? '',
+              },
+            ),
+      );
+    });
+  }
+
+  Future<void> _handleSwipe(Map<String, dynamic> user, bool liked) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    final docRef = FirebaseFirestore.instance
+        .collection('likes')
+        .doc(currentUser.uid);
+    await docRef.set({}, SetOptions(merge: true));
+    final subRef = docRef.collection('userLikes').doc(user['uid']);
+    await subRef.set({'liked': liked});
+
+    if (liked) {
+      final otherLikeDoc = await FirebaseFirestore.instance
+          .collection('likes')
+          .doc(user['uid'])
+          .collection('userLikes')
+          .doc(currentUser.uid)
+          .get();
+      if (otherLikeDoc.exists && otherLikeDoc['liked'] == true) {
+        final chatId = [currentUser.uid, user['uid']]..sort();
+        await FirebaseFirestore.instance
+            .collection('chats')
+            .doc(chatId.join('_'))
+            .set({
+              'users': [currentUser.uid, user['uid']],
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('It\'s a match with ${user['name']}!')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: Padding(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.black87, Colors.deepPurple],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
         padding: const EdgeInsets.all(16),
         child: SwipableStack(
           controller: _controller,
           itemCount: _cards.length,
           onSwipeCompleted: (index, direction) {
             final user = _cards[index];
-            print('Swiped ${direction.name} on ${user['name']}');
-
-            // TODO: Implement like/pass Firestore logic here
+            _handleSwipe(user, direction == SwipeDirection.right);
+          },
+          overlayBuilder: (context, properties) {
+            if (properties.direction == SwipeDirection.right) {
+              return Center(
+                child: Text(
+                  'LIKE',
+                  style: TextStyle(
+                    color: Colors.green,
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+            } else if (properties.direction == SwipeDirection.left) {
+              return Center(
+                child: Text(
+                  'NOPE',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+            }
+            return Container();
           },
           builder: (context, properties) {
             final user = _cards[properties.index];
+            int currentPage = 0;
             return Card(
-              elevation: 6,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${user['name']}, ${user['age']}',
-                      style: Theme.of(context).textTheme.headlineSmall,
+              clipBehavior: Clip.antiAlias,
+              elevation: 8,
+              child: Stack(
+                children: [
+                  if (user['photos'].isNotEmpty)
+                    PageView.builder(
+                      itemCount: user['photos'].length,
+                      onPageChanged: (index) =>
+                          setState(() => currentPage = index),
+                      itemBuilder: (context, index) {
+                        return Image.network(
+                          user['photos'][index],
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        );
+                      },
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      user['bio'],
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyLarge,
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black54],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                  Positioned(
+                    bottom: 20,
+                    left: 16,
+                    right: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '${user['name']}, ${user['age']}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (user['gender'].isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurpleAccent,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  user['gender'],
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          user['bio'],
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          children: (user['interests'] as List)
+                              .map(
+                                (e) => Chip(
+                                  backgroundColor: Colors.deepPurple,
+                                  label: Text(
+                                    e,
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              )
+                              .toList(),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(user['photos'].length, (
+                            index,
+                          ) {
+                            return Container(
+                              width: 8,
+                              height: 8,
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: currentPage == index
+                                    ? Colors.deepPurple
+                                    : Colors.white30,
+                              ),
+                            );
+                          }),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             );
           },
+        ),
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            FloatingActionButton(
+              heroTag: 'dislike',
+              onPressed: () =>
+                  _controller.next(swipeDirection: SwipeDirection.left),
+              backgroundColor: Colors.red,
+              child: const Icon(Icons.thumb_down),
+            ),
+            FloatingActionButton(
+              heroTag: 'like',
+              onPressed: () =>
+                  _controller.next(swipeDirection: SwipeDirection.right),
+              backgroundColor: Colors.green,
+              child: const Icon(Icons.thumb_up),
+            ),
+          ],
         ),
       ),
     );
