@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "849621270587",
+    "project_id": "nepdate-2972d",
+    "storage_bucket": "nepdate-2972d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:849621270587:android:7fbe8786361391ff571c1e",
+        "android_client_info": {
+          "package_name": "com.ritzzss.nepdate"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDnE6OW5-xGu1vH2KdTSQT1ljZreElxGUI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
